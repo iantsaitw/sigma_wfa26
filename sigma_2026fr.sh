@@ -7,6 +7,7 @@ SIGMA_TOOL_DIR="/home/rtk/Documents/sigma_tool"
 WFA_DIR="/tmp/wfa"
 WFA_SCRIPT="./wfa_test.sh"
 LINUX_STABLE_DIR="/home/rtk/Documents/linux-stable"
+HOSTAP_DIR="/home/rtk/Documents/hostap-wfa26/hostap"
 RELOAD_SCRIPT="./reload_all.sh"
 
 # Monitoring Constants
@@ -25,8 +26,8 @@ WHITE='\033[1;37m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-BG_WHITE_FG_GREEN='\033[100;32;1m' # 白底(47) + 綠字(32) + 粗體(1)
-BG_WHITE_FG_RED='\033[100;31;1m'   # 白底(47) + 紅字(31) + 粗體(1)
+BG_WHITE_FG_GREEN='\033[100;32;1m' # White BG (47) + Green FG (32) + Bold (1)
+BG_WHITE_FG_RED='\033[100;31;1m'   # White BG (47) + Red FG (31) + Bold (1)
 
 ICON_INFO="${BLUE}ℹ${NC}"
 ICON_SUCCESS="${GREEN}✔${NC}"
@@ -114,8 +115,44 @@ do_status() {
         SYSTEM_HEALTH=0
     fi
 
-    # 5. Debug Snippet
-    echo -e "\n${BOLD}${WHITE}5. Latest Kernel Debug Messages:${NC}"
+    # 5. Git Repository Status
+    echo -e "\n${BOLD}${WHITE}5. Git Repository Status:${NC}"
+    for dir in "$LINUX_STABLE_DIR" "$HOSTAP_DIR"; do
+        # Check if directory exists
+        if [ ! -d "$dir" ]; then
+            echo -e "   [ ${RED}!!${NC} ] Directory not found: $dir"
+            SYSTEM_HEALTH=0
+            continue
+        fi
+
+        # Find the absolute root path of the git repository for this directory
+        # This gracefully handles subdirectories (like wpa_supplicant) inside submodules (like hostap)
+        REPO_ROOT=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+
+        if [ -n "$REPO_ROOT" ]; then
+            # Query branch and commit using the discovered root path
+            local BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
+            local COMMIT=$(git -C "$REPO_ROOT" log -1 --format="%h - %s (%cr)" 2>/dev/null)
+            local REPO_NAME=$(basename "$REPO_ROOT")
+            local TARGET_DIR=$(basename "$dir")
+            
+            # Format UI display name (e.g., hostap -> wpa_supplicant)
+            local DISPLAY_NAME="$REPO_NAME"
+            if [ "$REPO_NAME" != "$TARGET_DIR" ]; then
+                DISPLAY_NAME="${REPO_NAME} -> ${TARGET_DIR}"
+            fi
+            
+            echo -e "   [ ${BLUE}${DISPLAY_NAME}${NC} ]"
+            echo -e "     Branch: ${GREEN}${BRANCH}${NC}"
+            echo -e "     Latest: ${WHITE}${COMMIT}${NC}"
+        else
+            echo -e "   [ ${RED}!!${NC} ] Git metadata not found for path: $dir"
+            SYSTEM_HEALTH=0
+        fi
+    done
+
+    # 6. Debug Snippet
+    echo -e "\n${BOLD}${WHITE}6. Latest Kernel Debug Messages:${NC}"
     sudo dmesg | grep -E "$DRIVER_NAME" | tail -n 5 | sed 's/^/   /'
     echo ""
 
@@ -207,7 +244,7 @@ do_start() {
         return 1
     fi
 
-    # --- Self Environment Check Added Here ---
+    # Perform Self-Environment Check
     log_info "Step 4: Performing Self-Environment Check..."
     sleep 2 # Give WFA CA 2 seconds to bind port 9000 and become fully responsive
     do_status
